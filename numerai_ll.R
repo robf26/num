@@ -34,8 +34,8 @@ require(Metrics)
 
 ### Data Load and Manipulation ###
 
-train <- read_csv("numerai_training_data.csv")
-test <- read_csv("numerai_tournament_data.csv")
+train <- read_csv("./data/numerai_training_data.csv")
+test <- read_csv("./data/numerai_tournament_data.csv")
 train$traintest <- "train"
 test$traintest <- "test"
 
@@ -447,13 +447,14 @@ test_cor_avg <- matrix(rowMeans(test_cor),models_n)
 test_cor_avg
 
 # Create ensemble models at this step?
-ensemble_prob_valid <- lapply(prob_valid,function(x) rowMeans(x))
+ensemble_prob_valid <- sapply(prob_valid,function(x) rowMeans(x))
 
 # Extract the actual y's using indices
 samples_validindex_y <- lapply(lapply(samples, function(x) x$index$valid), 
                                function(y) data[y,outcome_name])
 samples_testindex_y <- lapply(lapply(samples, function(x) x$index$test), 
                                function(y) data[y,outcome_name])
+
 
 # Fit logLoss
 #lapply(ensemble_prob_valid,function(x) logLoss(actual,pred))
@@ -462,7 +463,8 @@ logLoss(samples_validindex_y[[1]],ensemble_prob_valid[[1]])
 logLoss(samples_validindex_y[[2]],ensemble_prob_valid[[2]])
 logLoss(samples_validindex_y[[3]],ensemble_prob_valid[[3]])
 
-
+sapply(prob_valid[[1]], function(x) 
+  logLoss(samples_validindex_y[[1]],x))
 
 
 ###### Using caret to train ######
