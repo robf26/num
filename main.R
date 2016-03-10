@@ -1,16 +1,4 @@
 
-# fix logloss for validation and test set
-# code to switch which models to ensemble
-# optimisation on ensemble validation set
-# compare cross validation results to test set
-
-# Bagging glm models
-# take pcas or each block of 3 that is correlated.
-# fit models on pca 1 and separate on pca 2 and 3.
-# fit glmnet models with regularisation
-
-#setwd(paste0(getwd(),"/4-MachineLearning/numerai/logloss/"))
-
 # Data Manipulation
 require(readr)
 require(dplyr)
@@ -29,8 +17,6 @@ require(doParallel)
 require(xgboost)
 
 require(Metrics)
-#require(caTools)
-#require(pROC)
 
 ### Data Load and Manipulation ###
 
@@ -53,22 +39,7 @@ rm(list=c("train","test")) # drop train and test
 
 ### Data Visualisation ###
 
-# Correlations
-corrplot(cor(data[trainindex,feature_names]),"circle",tl.cex=0.6)
-corrplot(cor(data[trainindex,feature_names]),"circle",order="hclust",tl.cex=0.6)
-corrplot(cor(data[trainindex,c(outcome_name,feature_names)]),"circle",tl.cex=0.6)
-
-
-clust <- paste("feature",c(19,1,8,5,17,20,13,
-                           15,16,10,11,21,6,4,
-                           14,2,3,18,12,7,9),sep="")
-clust1 <- clust[seq(1,21,3)]
-clust2 <- clust[seq(2,21,3)]
-clust3 <- clust[seq(3,21,3)]
-
-clust4 <- paste("feature",c(1,17,15,10,14,2,12),sep="")
-
-# What is the distribution of the factors?
+# Dstribution of the factors
 all %>%
   select(-t_id) %>%
   melt(id.vars=c("target","traintest")) %>% 
@@ -88,10 +59,28 @@ all %>%
 # Structure in the data not being able to take certain values!?
 # This will impact tree methods?
 
-# Call sampling routine
+# Correlations
+corrplot(cor(data[trainindex,feature_names]),"circle",tl.cex=0.6)
+corrplot(cor(data[trainindex,feature_names]),"circle",order="hclust",tl.cex=0.6)
+corrplot(cor(data[trainindex,c(outcome_name,feature_names)]),"circle",tl.cex=0.6)
+
+### Feature Engineering ###
+
+# Make cluster groups:
+clust <- paste("feature",c(19,1,8,5,17,20,13,
+                           15,16,10,11,21,6,4,
+                           14,2,3,18,12,7,9),sep="")
+clust1 <- clust[seq(1,21,3)]
+clust2 <- clust[seq(2,21,3)]
+clust3 <- clust[seq(3,21,3)]
+
+clust4 <- paste("feature",c(1,17,15,10,14,2,12),sep="")
+
+
+### Call sampling routine ###
 source("sampling.R")
 samples <- samplingcv("option3",trainindex,testindex,ytrain)
-# Check how to feed these into caret
+# Check how to feed these into caret?
 
 # Extract sampling info:
 sample_info = data.frame(t(sapply(samples, function(x) unlist(x[-length(x)]))))
@@ -99,17 +88,14 @@ str(lapply(samples,function(x) x$index$train))
 str(lapply(samples,function(x) x$index$test))
 
 
-# Save results for different models
+### Fit models ###
 
 source("models.R")
-
-#models <- list()
 ptm <- proc.time()
 models <- fitallmodels(data,samples,TRUE)
 proc.time() - ptm
 
 # Create ensemble models here?
-
 
 
 # Summarise results of models

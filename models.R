@@ -43,6 +43,7 @@ fitallmodels <- function(data,samples,saveprob = TRUE) {
 ## glm with ability to fit on certain features only ##
 fitglmsub <- function(index,
                       name="glm",features="all") {
+  index <- sampleindex[[1]]
   model <- list()
   model$name = name
   if (as.vector(features)[1]=="all") {
@@ -60,8 +61,7 @@ fitglmsub <- function(index,
   
   # FIX this code with mapply?
   #logloss <- list()
-  logloss <- mapply(function(x,y) logLoss(data[x,"target"], y), 
-                    index$train, prob$train)
+  logloss <- mapply(function(x,y) logLoss(data[x,"target"], y), index, prob, SIMPLIFY = FALSE)
   
   #logloss$train <- logLoss(data[index$train,"target"], prob$train)
   #if (names(index)[2]=="valid") {
