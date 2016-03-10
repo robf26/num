@@ -47,15 +47,16 @@ testindex <- which(all$traintest=="test")
 data <- data.frame(all)[,1:22]
 ytrain <- data[trainindex,outcome_name]
 ytrain_n <- length(ytrain)
+
 testid <- all[testindex,"t_id"]
-rm(list=c("all","train","test")) # drop train and test
+rm(list=c("train","test")) # drop train and test
 
 ### Data Visualisation ###
 
 # Correlations
-corrplot(cor(all[trainindex,feature_names]),"circle",tl.cex=0.6)
-corrplot(cor(all[trainindex,feature_names]),"circle",order="hclust",tl.cex=0.6)
-corrplot(cor(all[trainindex,c(outcome_name,feature_names)]),"circle",tl.cex=0.6)
+corrplot(cor(data[trainindex,feature_names]),"circle",tl.cex=0.6)
+corrplot(cor(data[trainindex,feature_names]),"circle",order="hclust",tl.cex=0.6)
+corrplot(cor(data[trainindex,c(outcome_name,feature_names)]),"circle",tl.cex=0.6)
 
 
 clust <- paste("feature",c(19,1,8,5,17,20,13,
@@ -81,186 +82,16 @@ all %>%
   ggplot(aes(x=value,fill=variable)) + 
   geom_density(alpha=0.2)
 
+all %>%
+  ggplot(aes(x=feature1,y=feature2)) + 
+  geom_point()
+# Structure in the data not being able to take certain values!?
+# This will impact tree methods?
 
-
-# Options for sampling:
-# Always uses stratefied sampling
-# 1: entire training set, and test set is unseen data, hence no cross validation
-#     - used for final model, obviously no sampling
-# X: another option for basic sample split, no folds etc. 
-# 2: train set is split into train set and test set
-#     - initially using full train set. Options for folds and repeats 
-# 3: train set is split into train, validation, test
-#     - useful for cross validating ensemble models 
-# 4: train set is split into same sized train and test sets, 
-#     - can set proportional increment by number of steps
-#     - max size is half the data
-# 5: train set is split into incrementing train set size and fixed proportion test set
-#     - might be better than option 4 as can train on more than half the data size. 
-#     - option to keep test set fixed, have folds, or random every time.
-#     - might be able to check bias/variance by correlations of predictions over time?
-
-# data        : entire data set with all training and test data
-# trainindex  : index for training data in data
-# testindex   : index for test data in data
-# ytrain      : trainindex factor used for stratefied sampling
-
-
-samples <- list()
-
-## Option 1:
-sample <- list()
-sample$type = 1
-sample$rep = 1
-sample$fold = 0
-index <- list()
-index$train <- trainindex
-index$test <- testindex
-sample$index <- index
-samples <- append(samples,list(sample))
-
-## Option 2:
-# Params
-folds = 5 
-repeats = 2
-
-id = 1
-set.seed(1)
-for (k in 1:repeats) {
-  test <- createFolds(ytrain, k = folds)
-  train <- lapply(test,function(x) setdiff(trainindex,x))
-  for (j in 1:folds) {
-    sample <- list()
-    sample$type = 2
-    sample$id = id
-    sample$rep = k
-    sample$fold = j
-    sample$index$train <- train[[j]]
-    sample$index$test <- test[[j]]
-    samples <- append(samples,list(sample))
-    id <- id +1
-  }
-}
-
-## Option 3:
-prop_train <- 0.6
-prop_valid <- 0.2
-prop_test <- 0.2
-repeats = 20
-
-id = 1
-set.seed(1)
-for (k in 1:repeats) {
-  p_test <- as.vector(createDataPartition(ytrain,p = prop_test,list=FALSE))
-  p_trainvalid <- setdiff(trainindex,p_test)
-  p_temp <- createDataPartition(ytrain[p_trainvalid],p = prop_valid/(1-prop_test),list=FALSE) 
-  p_valid <- p_trainvalid[p_temp]
-  p_train <- setdiff(p_trainvalid,p_valid)
-
-  sample <- list()
-  sample$type = 3
-  sample$id = id
-  sample$rep = k
-  sample$index$train <- p_train
-  sample$index$valid <- p_valid
-  sample$index$test <- p_test
-  samples <- append(samples,list(sample))
-  id <- id +1
-}
-
-## Option 4: 
-intervals = 5
-repeats = 3
-
-id = 1
-set.seed(1)
-for (k in 1:repeats) {
-  for (j in 1:intervals) {
-    p_range <- as.vector(createDataPartition(ytrain,p = j*1/intervals,list=FALSE))
-    p_temp <- createDataPartition(ytrain[p_range],p = 0.5,list=FALSE) 
-    p_train <- p_range[p_temp]
-    p_test <- setdiff(p_range,p_train)
-    
-    sample <- list()
-    sample$type = 4
-    sample$id = id
-    sample$rep = k
-    sample$interval = j
-    sample$n = length(p_train)
-    sample$index$train <- p_train
-    sample$index$test <- p_test
-    samples <- append(samples,list(sample))
-    id <- id +1
-  }
-}
-
-# 5: train set is split into incrementing train set size and fixed proportion test set
-#     - might be better than option 4 as can train on more than half the data size. 
-#     - option to keep test set fixed, have folds, or random every time.
-#     - might be able to check bias/variance by correlations of predictions over time?
-prop_test = 0.2
-fold_test = TRUE  # creates more samples by factor of 1/prop_test
-repeat_test = 1
-intervals = 5
-repeat_train = 3
-
-# Randomise to get test set of a particular size. Keep constant. 
-# Or use folds to get multiple test sets that then stay constant.
-# Then randomise to get different sized samples
-
-fold_n = ifelse(fold_test,floor(1/prop_test),1)
-id <- 1
-set.seed(1)
-for (k in 1:repeat_test) {
-    # Create test sets
-    if (fold_test) {
-      test_k <- createFolds(ytrain, k = fold_n)
-    } else {
-      test_k <- createDataPartition(ytrain,p = prop_test)
-    }
-    # Loop over test sets
-    for (i in 1:fold_n) {
-      p_test <- test_k[[i]]
-      # Define sampling range for intervals
-      p_range <- setdiff(trainindex,p_test)
-      
-      # Loop through train iterations
-      for (z in 1:repeat_train) {
-        # Assumption: when adding more data, we want it to include previous data?
-        # Assumption: should add data to train on in a stratefied manner?
-        p_train_j <- createFolds(ytrain[p_range],k = intervals)
-        
-        for (j in 1:intervals) {
-          if (j==1) {
-            p_train <- p_train_j[[1]]
-          }else{
-            p_train <- c(p_train,p_train_j[[j]])
-          }
-            
-          # Save sample data
-          sample <- list()
-          sample$type = 5
-          sample$id = id
-          sample$rep_test = k
-          sample$fold = i
-          sample$rep_train = z
-          sample$interval = j
-          sample$n = length(p_train)
-          sample$index$train <- p_train
-          sample$index$test <- p_test
-          samples <- append(samples,list(sample))
-          
-          id <- id +1
-              
-        }
-      }
-    }
-}
-
-                  
-##### end of sampling routines ######                  
-
-# Can maybe now feed these into caret?
+# Call sampling routine
+source("sampling.R")
+samples <- samplingcv("option3",trainindex,testindex,ytrain)
+# Check how to feed these into caret
 
 # Extract sampling info:
 sample_info = data.frame(t(sapply(samples, function(x) unlist(x[-length(x)]))))
@@ -269,72 +100,13 @@ str(lapply(samples,function(x) x$index$test))
 
 
 # Save results for different models
-models <- list()
-saveprob = TRUE
 
-##### Include all models here #####
+source("models.R")
 
-## glm with ability to fit on certain features only ##
-fitglmsub <- function(index,
-                      name="glm",features="all") {
-  model <- list()
-  model$name = name
-  if (as.vector(features)[1]=="all") {
-    features = names(data)
-  } else {
-    features = c("target",features)
-  }
-  model_fit <- glm(target~ .,
-                   data=data[index$train,features],
-                   family=binomial(logit))
-  prob <- lapply(index,function(x) {predict(model_fit,
-                                           newdata=data[x,features],
-                                           type="response")})
-  #Or loop through for better memory efficiency?
-
-  # FIX this code with mapply?
-  logloss <- list()
-  logloss$train <- logLoss(data[index$train,"target"], prob$train)
-  if (names(index)[2]=="valid") {
-    logloss$valid <- logLoss(data[index$valid,"target"], prob$valid)
-  }
-  logloss$test <- logLoss(data[index$test,"target"], prob$test)
-  # Save output
-  if (saveprob) {
-    model$prob <- prob
-  }
-  model$logloss <- logloss
-  #models <- append(models,list(model))
-  return(model)
-}
-
-## glm bagging with random predictors ##
-
-
-
-######
-
-# Fit individual model for all samples:
-sampleindex <- lapply(samples,function(x) x$index)
-
-models <- list()
-
-# Fit glm 
-model <- lapply(sampleindex,function(x) fitglmsub(x))
-models <- c(models,list(model))
-
-# Fit other models based on cluster pairs
-model <- lapply(sampleindex,function(x) fitglmsub(x,"glm_clust1",clust1))
-models <- c(models,list(model))
-
-model <- lapply(sampleindex,function(x) fitglmsub(x,"glm_clust2",clust2))
-models <- c(models,list(model))
-
-model <- lapply(sampleindex,function(x) fitglmsub(x,"glm_clust3",clust3))
-models <- c(models,list(model))
-
-model <- lapply(sampleindex,function(x) fitglmsub(x,"glm_clust4",clust4))
-models <- c(models,list(model))
+#models <- list()
+ptm <- proc.time()
+models <- fitallmodels(data,samples,TRUE)
+proc.time() - ptm
 
 # Create ensemble models here?
 
@@ -452,7 +224,10 @@ test_cor_avg
 # Feed in list of samples_models
 
 ensemble_prob_valid <- lapply(prob_valid,function(x) rowMeans(x))
-ensemble_prob_valid <- lapply(prob_valid,function(x) apply(x,1,function(z) mean(z[2:4])))
+#ensemble_prob_valid <- lapply(prob_valid,function(x) apply(x,1,function(z) mean(z[2:4])))
+# Code to create ensembles of equal weights across all models. 
+# 
+prob_valid[[1]]
 
 ensemble_prob_test <- lapply(prob_test,function(x) rowMeans(x))
 
@@ -476,6 +251,10 @@ df_all %>% ggplot(aes(x=rep,y=logloss.valid,colour=model)) + geom_point(size=3)
 
 df_all %>% ggplot(aes(x=model,y=logloss.valid)) + geom_boxplot()
 
+# Code to optimise weights on validation set. 
+
+
+# Then cross validate on test set.
 
 
 
