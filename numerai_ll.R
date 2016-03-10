@@ -9,7 +9,7 @@
 # fit models on pca 1 and separate on pca 2 and 3.
 # fit glmnet models with regularisation
 
-setwd(paste0(getwd(),"/4-MachineLearning/numerai/logloss/"))
+#setwd(paste0(getwd(),"/4-MachineLearning/numerai/logloss/"))
 
 # Data Manipulation
 require(readr)
@@ -146,7 +146,7 @@ for (k in 1:repeats) {
 prop_train <- 0.6
 prop_valid <- 0.2
 prop_test <- 0.2
-repeats = 10
+repeats = 20
 
 id = 1
 set.seed(1)
@@ -441,13 +441,20 @@ for (s in 1:samples_n) {
   prob_test[[s]] <- df
 }
 
+# When do we want the data as model_sample or sample_model?!
+
 # Average correlation with other models, in test set say,
 test_cor <- sapply(prob_test,function(x) cor(x))
 test_cor_avg <- matrix(rowMeans(test_cor),models_n)
 test_cor_avg
 
-# Create ensemble models at this step?
-ensemble_prob_valid <- sapply(prob_valid,function(x) rowMeans(x))
+# Create ensemble models at this step? Separate module of functions?
+# Feed in list of samples_models
+
+ensemble_prob_valid <- lapply(prob_valid,function(x) rowMeans(x))
+ensemble_prob_valid <- lapply(prob_valid,function(x) apply(x,1,function(z) mean(z[2:4])))
+
+ensemble_prob_test <- lapply(prob_test,function(x) rowMeans(x))
 
 # Extract the actual y's using indices
 samples_validindex_y <- lapply(lapply(samples, function(x) x$index$valid), 
@@ -455,16 +462,31 @@ samples_validindex_y <- lapply(lapply(samples, function(x) x$index$valid),
 samples_testindex_y <- lapply(lapply(samples, function(x) x$index$test), 
                                function(y) data[y,outcome_name])
 
+# Fit logLoss, by sample
+ensemble_logloss_valid <- mapply(function(x,y) logLoss(x,y), samples_validindex_y,ensemble_prob_valid)
+ensemble_logloss_test <- mapply(function(x,y) logLoss(x,y), samples_testindex_y,ensemble_prob_test)
+# Averaged across all samples
+mean(ensemble_logloss_valid)
+mean(ensemble_logloss_test)
 
-# Fit logLoss
-#lapply(ensemble_prob_valid,function(x) logLoss(actual,pred))
+df_models <- fit[,c("rep","model","logloss.valid")]
+df_ens <- data.frame(rep = 1:10,model="ensemble",logloss.valid = ensemble_logloss_valid)
+df_all <- rbind(df_models,df_ens)
+df_all %>% ggplot(aes(x=rep,y=logloss.valid,colour=model)) + geom_point(size=3)
 
-logLoss(samples_validindex_y[[1]],ensemble_prob_valid[[1]])
-logLoss(samples_validindex_y[[2]],ensemble_prob_valid[[2]])
-logLoss(samples_validindex_y[[3]],ensemble_prob_valid[[3]])
+df_all %>% ggplot(aes(x=model,y=logloss.valid)) + geom_boxplot()
 
-sapply(prob_valid[[1]], function(x) 
-  logLoss(samples_validindex_y[[1]],x))
+
+
+
+# Validation logloss calculated from probability output. 
+# same as logloss_valid and similar to data in fit
+# rows: models, cols: iterations
+logloss_valid_2 <- mapply(function(x,y) 
+          sapply(1:models_n,function(z) logLoss(y,x[,z])), 
+          prob_valid, samples_validindex_y)
+
+
 
 
 ###### Using caret to train ######
