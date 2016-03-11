@@ -1,4 +1,56 @@
 
+# ensemble.R
+# Scripts to ensemble models.
+
+ensemble_average_pred <- function(pred,type) {
+  model <- list()
+  for (s in 1:length(pred)) {
+    fit <- list()
+    fit$name = "ensemble_average"
+    prob <- list()
+    fit$prob[[type]] <- rowMeans(pred[[s]])
+    model <- c(model,list(fit))
+  }
+  return(model)
+}
+
+fitallensembles <- function(models,samples_validindex_y,
+                            samples_testindex_y) {
+  
+  prob_valid <- extract_pred_as_samples_models_df(models,"valid") 
+  prob_test <- extract_pred_as_samples_models_df(models,"test") 
+  
+  models_ens <- list()
+  
+  # For each samples, loop
+  for (s in 1:length(prob_valid)) {
+    
+    model <- list()
+    x <- prob_valid
+    
+    
+    
+    model$prob$valid <- NA
+    
+    
+    # Predict on test set?
+    model$prob$test <- NA
+    
+    # Add to model
+    models_ens <- c(models_ens,list(model))
+  }
+  
+  return(models_ens)
+}
+
+
+# Code to optimise weights on validation set. 
+
+
+
+old <- function(x) {
+  
+
 # Implement the WAVE algorithm for ensembling
 # http://www.ams.sunysb.edu/~hahn/psfile/wave.pdf
 # Also implement a greedy optimisation
@@ -78,7 +130,7 @@ rbind(modelnames,weights2)
 # this doesn't really seem to be a good option
 
 
-
+}
 
 
 

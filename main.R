@@ -159,96 +159,46 @@ fit %>%
 
 
 ## Correlations among models ##
+
 # Extract predictions to use for correlation analysis
+prob_valid <- extract_pred_as_samples_models_df(models,"valid") 
+#prob_test <- extract_pred_as_samples_models_df(models,"test") 
 
-# Change ordering of nesting of list:
-# Validation probs. List of sample ids, 10 elements, of dataframes with 
-# columns as each of the models.
-prob_valid <- list()
-for (s in 1:samples_n) {
-  for (m in 1:models_n) {
-    col <- models[[m]][[s]]$prob$valid
-    # make dataframe
-    if (m==1) {
-      df <- data.frame(col)
-    } else {
-      df <- data.frame(df,col)
-    }
-  }
-  # save dataframe
-  names(df) <- models_names
-  prob_valid[[s]] <- df
-}
+# Average correlation with other models, in validation and test set,
+cor_valid_samples <- sapply(prob_valid,function(x) cor(x))
+cor_valid <- matrix(rowMeans(cor_valid_samples),models_n)
+cor_valid
 
-# Combine this into a function. Or change the fit approach?
-prob_test <- list()
-for (s in 1:samples_n) {
-  for (m in 1:models_n) {
-    col <- models[[m]][[s]]$prob$test
-    # make dataframe
-    if (m==1) {
-      df <- data.frame(col)
-    } else {
-      df <- data.frame(df,col)
-    }
-  }
-  # save dataframe
-  names(df) <- models_names
-  prob_test[[s]] <- df
-}
-
-# When do we want the data as model_sample or sample_model?!
-
-# Average correlation with other models, in test set say,
-test_cor <- sapply(prob_test,function(x) cor(x))
-test_cor_avg <- matrix(rowMeans(test_cor),models_n)
-test_cor_avg
-
-# Create ensemble models at this step? Separate module of functions?
-# Feed in list of samples_models
-
-ensemble_prob_valid <- lapply(prob_valid,function(x) rowMeans(x))
-#ensemble_prob_valid <- lapply(prob_valid,function(x) apply(x,1,function(z) mean(z[2:4])))
-# Code to create ensembles of equal weights across all models. 
-# 
-prob_valid[[1]]
-
-ensemble_prob_test <- lapply(prob_test,function(x) rowMeans(x))
-
-# Extract the actual y's using indices
+# Extract the actual y's using indices which may be used for fitting ensemble. 
+# And used for testing all other results.
 samples_validindex_y <- lapply(lapply(samples, function(x) x$index$valid), 
                                function(y) data[y,outcome_name])
 samples_testindex_y <- lapply(lapply(samples, function(x) x$index$test), 
-                               function(y) data[y,outcome_name])
+                              function(y) data[y,outcome_name])
 
-# Fit logLoss, by sample
-ensemble_logloss_valid <- mapply(function(x,y) logLoss(x,y), samples_validindex_y,ensemble_prob_valid)
-ensemble_logloss_test <- mapply(function(x,y) logLoss(x,y), samples_testindex_y,ensemble_prob_test)
+## Ensembling models ## 
+source("ensemble.R")
+models_ens <- fitallensembles(models,samples_validindex_y)
+
+ensemble_prob_valid <- ensemble_average_pred(prob_valid,"valid")
+models_ens <- c(models,list(ensemble_prob_valid))
+
+prob_valid_ens <- extract_pred_as_samples_models_df(models_ens,"valid") 
+
+# Recalculate performance metrics.
+ens_logloss_valid <- mapply(function(y,x) apply(x,2,function(z) logLoss(y,z)), 
+                                 samples_validindex_y,prob_valid_ens)
+
 # Averaged across all samples
-mean(ensemble_logloss_valid)
-mean(ensemble_logloss_test)
+apply(ens_logloss_valid,1,mean)
 
-df_models <- fit[,c("rep","model","logloss.valid")]
-df_ens <- data.frame(rep = 1:10,model="ensemble",logloss.valid = ensemble_logloss_valid)
-df_all <- rbind(df_models,df_ens)
-df_all %>% ggplot(aes(x=rep,y=logloss.valid,colour=model)) + geom_point(size=3)
-
-df_all %>% ggplot(aes(x=model,y=logloss.valid)) + geom_boxplot()
-
-# Code to optimise weights on validation set. 
+# Make charts
+data.frame(t(ens_logloss_valid)) %>%
+  gather(model,logloss.valid) %>% 
+  ggplot(aes(x=model,y=logloss.valid)) + geom_boxplot()
 
 
 # Then cross validate on test set.
-
-
-
-# Validation logloss calculated from probability output. 
-# same as logloss_valid and similar to data in fit
-# rows: models, cols: iterations
-logloss_valid_2 <- mapply(function(x,y) 
-          sapply(1:models_n,function(z) logLoss(y,x[,z])), 
-          prob_valid, samples_validindex_y)
-
 
 
 ### Submission file ###

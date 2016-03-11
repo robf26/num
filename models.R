@@ -70,6 +70,7 @@ fitglmsub <- function(index,
   return(model)
 }
 
+## Model that runs k-means then runs pca then fits glmnet.
 
 
 ## Other models

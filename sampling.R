@@ -190,4 +190,32 @@ samplingcv <- function(type,trainindex,testindex,ytrain) {
 }
 
 
+extract_pred_as_samples_models_df <- function(models,pred) {
+  # Change ordering of nesting of list:
+  # Make list of sample ids, containing dataframes 
+  # columns as each of the models predictions
+  
+  # Takes models and pred: train, test, valid
+  preds <- list()
+  models_n <- length(models)
+  models_names <- sapply(models,function(x) x[[1]]$name)
+  samples_n <- length(models[[1]])
+  for (s in 1:samples_n) {
+    for (m in 1:models_n) {
+      col <- models[[m]][[s]]$prob[pred]
+      # make dataframe
+      if (m==1) {
+        df <- data.frame(col)
+      } else {
+        df <- data.frame(df,col)
+      }
+    }
+    # save dataframe
+    names(df) <- models_names
+    preds[[s]] <- df
+  }
+  return(preds)
+}
+
+
 
