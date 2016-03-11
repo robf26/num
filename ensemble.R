@@ -20,37 +20,80 @@ fitallensembles <- function(models,samples_validindex_y,
   prob_valid <- extract_pred_as_samples_models_df(models,"valid") 
   prob_test <- extract_pred_as_samples_models_df(models,"test") 
   
+  models_n <- length(models)
   models_ens <- list()
   
-  # For each samples, loop
-  for (s in 1:length(prob_valid)) {
-    
+  ## Fit ensemble equal weight ##
+  fit <- list()
+  samples_n <- length(prob_valid)
+  for (s in 1:samples_n) {
     model <- list()
-    x <- prob_valid
-    
-    
-    
-    model$prob$valid <- NA
-    
-    
-    # Predict on test set?
-    model$prob$test <- NA
-    
-    # Add to model
-    models_ens <- c(models_ens,list(model))
+    model$name <- "ens_average"
+    weights <- rep(1,models_n)/models_n
+    model$param$weights <- weights
+    prob <- list()
+    prob$valid <- as.matrix(prob_valid[[s]]) %*% weights
+    prob$test <- as.matrix(prob_test[[s]]) %*% weights
+    model$prob <- prob
+    fit <- c(fit,list(model))
   }
+  models_ens <- c(models_ens,list(fit))
+  #####
+  
+  ## Fit greedy ensemble ##
+  fit <- list()
+  samples_n <- length(prob_valid)
+  for (s in 1:samples_n) {
+    model <- list()
+    model$name <- "ens_greedy_ll"
+    x <- as.matrix(prob_valid[[s]])
+    y <- samples_validindex_y[[s]]
+    weights <- greedylogloss(x,y)
+    model$param$weights <- weights
+    prob <- list()
+    prob$valid <- x %*% weights
+    prob$test <- as.matrix(prob_test[[s]]) %*% weights
+    model$prob <- prob
+    fit <- c(fit,list(model))
+  }
+  models_ens <- c(models_ens,list(fit))
+  #####
   
   return(models_ens)
 }
 
 
-# Code to optimise weights on validation set. 
-
-
-
-old <- function(x) {
+# Greedy optimisation
+greedylogloss <- function(x,y) {
+  # x: probabilities
+  # y: actual outcome
+  iter        <- 100L
+  N           <- ncol(x)
+  weights     <- rep(0L, N)
+  pred        <- 0 * x
+  sum.weights <- 0L
+  maxtest     <- rep(0,iter)
   
+  while(sum.weights < iter) {
+    sum.weights   <- sum.weights + 1L
+    pred          <- (pred + x) * (1L / sum.weights) 
+    # errors        <- sqrt(colSums((pred - Y) ^ 2L, na.rm=TRUE))  # RMSE
+    # errors        <- colSums(ifelse(pred==Y,0,1))  # 
+    errors <- apply(pred,2,function(z) logLoss(y,z))  # apply logloss option
+    best          <- which.min(errors)
+    weights[best] <- weights[best] + 1L
+    pred          <- pred[, best] * sum.weights
+    maxtest[sum.weights] <- min(errors)
+  }
+  weightsnorm <- weights/sum(weights)
+  return(weightsnorm)
+}
 
+
+
+
+WAVE <- function(x) {
+  
 # Implement the WAVE algorithm for ensembling
 # http://www.ams.sunysb.edu/~hahn/psfile/wave.pdf
 # Also implement a greedy optimisation
@@ -99,36 +142,6 @@ cor(EnsembleResults)
 propcorrect <- ifelse(EnsembleResults==PredAll[PredAll$DataType=="Test","Y"],1,0)
 apply(propcorrect,2,mean)
 P
-
-# Although not really necessary here, fit a greedy optimisation on weights
-set.seed(1)
-X <- as.matrix(PredAll[PredAll$DataType=="Validation",modelnames])
-Y <- PredAll[PredAll$DataType=="Validation","Y"]
-
-iter        <- 150L
-N           <- ncol(X)
-weights     <- rep(0L, N)
-pred        <- 0 * X
-sum.weights <- 0L
-maxtest     <- rep(0,iter)
-
-while(sum.weights < iter) {
-  sum.weights   <- sum.weights + 1L
-  pred          <- (pred + X) * (1L / sum.weights) 
-  # errors        <- sqrt(colSums((pred - Y) ^ 2L, na.rm=TRUE))  # RMSE
-  errors        <- colSums(ifelse(pred==Y,0,1))  # check?
-  best          <- which.min(errors)
-  weights[best] <- weights[best] + 1L
-  pred          <- pred[, best] * sum.weights
-  maxtest[sum.weights] <- min(errors)
-}
-weights2 <- weights/sum(weights)
-
-rbind(modelnames,weights2)
-
-# Given the small validation set, and how correlated the predictors are,
-# this doesn't really seem to be a good option
-
 
 }
 

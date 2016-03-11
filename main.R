@@ -180,30 +180,28 @@ samples_testindex_y <- lapply(lapply(samples, function(x) x$index$test),
 source("ensemble.R")
 models_ens <- fitallensembles(models,samples_validindex_y)
 
-ensemble_prob_valid <- ensemble_average_pred(prob_valid,"valid")
-models_ens <- c(models,list(ensemble_prob_valid))
+#ensemble_prob_valid <- ensemble_average_pred(prob_valid,"valid")
+#models_ens <- c(models,list(ensemble_prob_valid))
 
-prob_valid_ens <- extract_pred_as_samples_models_df(models_ens,"valid") 
+models_all <- c(models,models_ens)
 
 # Recalculate performance metrics.
-ens_logloss_valid <- mapply(function(y,x) apply(x,2,function(z) logLoss(y,z)), 
-                                 samples_validindex_y,prob_valid_ens)
+prob_test_ens <- extract_pred_as_samples_models_df(models_all,"test") 
+ens_logloss_test <- mapply(function(y,x) apply(x,2,function(z) logLoss(y,z)), 
+                                 samples_testindex_y,prob_test_ens)
 
 # Averaged across all samples
-apply(ens_logloss_valid,1,mean)
+apply(ens_logloss_test,1,mean)
 
 # Make charts
-data.frame(t(ens_logloss_valid)) %>%
-  gather(model,logloss.valid) %>% 
-  ggplot(aes(x=model,y=logloss.valid)) + geom_boxplot()
-
-
-# Then cross validate on test set.
+data.frame(t(ens_logloss_test)) %>%
+  gather(model,logloss.test) %>% 
+  ggplot(aes(x=model,y=logloss.test)) + geom_boxplot()
 
 
 ### Submission file ###
 
-submission <- data.frame(t_id = all[testindex,"t_id"],
+submission <- data.frame(t_id = testid,
                          probability = ensemble_prob_test)
 
 write_csv(submission,"./predictions/predictions_7.csv")
