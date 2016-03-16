@@ -13,10 +13,9 @@ require(corrplot)
 
 # Machine Learning
 require(caret)
+require(Metrics)
 require(doParallel)
 require(xgboost)
-
-require(Metrics)
 
 ### Data Load and Manipulation ###
 
@@ -54,8 +53,9 @@ all %>%
   geom_density(alpha=0.2)
 
 all %>%
-  ggplot(aes(x=feature1,y=feature2)) + 
-  geom_point()
+  filter(traintest=="train") %>%
+  ggplot(aes(x=feature1,y=feature2,colour=target)) + 
+  geom_point(aes(colour=as.factor(target)))
 # Structure in the data not being able to take certain values!?
 # This will impact tree methods?
 
@@ -79,8 +79,7 @@ clust4 <- paste("feature",c(1,17,15,10,14,2,12),sep="")
 
 ### Call sampling routine ###
 source("sampling.R")
-samples <- samplingcv("option3",trainindex,testindex,ytrain)
-# Check how to feed these into caret?
+samples <- samplingcv("option5",trainindex,testindex,ytrain)
 # Extract sampling info:
 sample_info = data.frame(t(sapply(samples, function(x) unlist(x[-length(x)]))))
 str(lapply(samples,function(x) x$index$train))
@@ -93,9 +92,6 @@ ptm <- proc.time()
 models <- fitallmodels(data,samples,TRUE)
 proc.time() - ptm
 
-# Create ensemble models here?
-
-
 # Summarise results of models
 samples_n <- nrow(sample_info)
 models_n <- length(models)
@@ -104,12 +100,8 @@ models_names <- sapply(models,function(x) x[[1]]$name)
 # How best to extract info? rows: samples, cols: models
 logloss_train <- data.frame(sapply(models,function(x) sapply(x,function(x) x$logloss$train)))
 logloss_test <- data.frame(sapply(models,function(x) sapply(x,function(x) x$logloss$test)))
-logloss_valid <- data.frame(sapply(models,function(x) sapply(x,function(x) x$logloss$valid)))
-
 names(logloss_train) <- models_names
 names(logloss_test) <- models_names
-names(logloss_valid) <- models_names
-
 logloss_test
 
 # Tidy output
@@ -117,11 +109,7 @@ logloss.train <- data.frame(logloss_train,id = sample_info$id) %>%
                     gather(model,logloss.train,-id) 
 logloss.test <- data.frame(logloss_test,id = sample_info$id) %>% 
                     gather(model,logloss.test,-id)
-logloss.valid <- data.frame(logloss_valid,id = sample_info$id) %>% 
-                    gather(model,logloss.valid,-id)
-
 metrics <- full_join(logloss.train,logloss.test,by=c("id","model"))
-metrics <- full_join(metrics,logloss.valid,by=c("id","model"))
 
 # Gather all data
 fit <- sample_info
@@ -135,14 +123,6 @@ fit %>%
   summarise(ll.test = mean(logloss.test)) %>%
   ggplot(aes(x=interval,y=ll.test,colour=model)) +
   geom_line(size=2)
-
-# Train
-fit %>% 
-  group_by(model,interval) %>%
-  summarise(ll.train = mean(logloss.train)) %>%
-  ggplot(aes(x=interval,y=ll.train,colour=model)) +
-  geom_line(size=2)
-
 # Plot together as facet
 fit %>% 
   gather(metric,value,-(type:model))  %>% 
@@ -158,7 +138,11 @@ fit %>%
   geom_boxplot(aes(fill=as.factor(model)))
 
 
-## Correlations among models ##
+## Ensembling models ##
+samples <- samplingcv("option3",trainindex,testindex,ytrain)
+ptm <- proc.time()
+models <- fitallmodels(data,samples,TRUE)
+proc.time() - ptm
 
 # Extract predictions to use for correlation analysis
 prob_valid <- extract_pred_as_samples_models_df(models,"valid") 
@@ -176,12 +160,9 @@ samples_validindex_y <- lapply(lapply(samples, function(x) x$index$valid),
 samples_testindex_y <- lapply(lapply(samples, function(x) x$index$test), 
                               function(y) data[y,outcome_name])
 
-## Ensembling models ## 
+## Fitting ensemble models ## 
 source("ensemble.R")
 models_ens <- fitallensembles(models,samples_validindex_y)
-
-#ensemble_prob_valid <- ensemble_average_pred(prob_valid,"valid")
-#models_ens <- c(models,list(ensemble_prob_valid))
 
 models_all <- c(models,models_ens)
 
@@ -200,11 +181,17 @@ data.frame(t(ens_logloss_test)) %>%
 
 
 ### Submission file ###
+samples <- samplingcv("option1",trainindex,testindex,ytrain)
+ptm <- proc.time()
+models <- fitallmodels(data,samples,TRUE)
+proc.time() - ptm
+prob_test_ens <- extract_pred_as_samples_models_df(models,"test") 
+prob_test_avg <- ensemble_average_pred(prob_test_ens,"test")
 
 submission <- data.frame(t_id = testid,
-                         probability = ensemble_prob_test)
+                         probability = prob_test_avg[[1]]$prob$test)
 
-write_csv(submission,"./predictions/predictions_7.csv")
+write_csv(submission,"./predictions/predictions_1.csv")
 
 
 
