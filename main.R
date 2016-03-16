@@ -1,29 +1,16 @@
 
-# Data Manipulation
-require(readr)
-require(dplyr)
-require(tidyr)
-require(Matrix)
-require(reshape2)
-
-# Data Visualisation 
-require(ggplot2)
-require(psych)
-require(corrplot)
-
-# Machine Learning
-require(caret)
-require(Metrics)
-require(doParallel)
-require(xgboost)
+# Load packages
+pkgs_data <- c("readr","dplyr","tidyr","Matrix","reshape2")
+pkgs_visualisation <- c("ggplot2","psych","corrplot")
+pkgs_machinelearning <- c("caret","Metrics","glmnet","doParallel","xgboost")
+pkgs <- c(pkgs_data,pkgs_visualisation,pkgs_machinelearning)
+lapply(pkgs, require, character.only = TRUE)
 
 ### Data Load and Manipulation ###
-
 train <- read_csv("./data/numerai_training_data.csv")
 test <- read_csv("./data/numerai_tournament_data.csv")
 train$traintest <- "train"
 test$traintest <- "test"
-
 all <- bind_rows(train,test)
 outcome_name <- "target"
 feature_names <- names(all)[1:21]
@@ -32,39 +19,16 @@ testindex <- which(all$traintest=="test")
 data <- data.frame(all)[,1:22]
 ytrain <- data[trainindex,outcome_name]
 ytrain_n <- length(ytrain)
-
 testid <- all[testindex,"t_id"]
 rm(list=c("train","test")) # drop train and test
 
-### Data Visualisation ###
+### Data Visualisation and features ###
+source("features.R")
 
-# Dstribution of the factors
-all %>%
-  select(-t_id) %>%
-  melt(id.vars=c("target","traintest")) %>% 
-  ggplot(aes(variable,value)) + 
-  geom_boxplot(aes(fill=as.factor(target))) + 
-  coord_flip() 
-
-all %>%
-  select(-t_id) %>%
-  melt(id.vars=c("target","traintest")) %>% 
-  ggplot(aes(x=value,fill=variable)) + 
-  geom_density(alpha=0.2)
-
-all %>%
-  filter(traintest=="train") %>%
-  ggplot(aes(x=feature1,y=feature2,colour=target)) + 
-  geom_point(aes(colour=as.factor(target)))
-# Structure in the data not being able to take certain values!?
-# This will impact tree methods?
-
-# Correlations
-corrplot(cor(data[trainindex,feature_names]),"circle",tl.cex=0.6)
-corrplot(cor(data[trainindex,feature_names]),"circle",order="hclust",tl.cex=0.6)
-corrplot(cor(data[trainindex,c(outcome_name,feature_names)]),"circle",tl.cex=0.6)
-
-### Feature Engineering ###
+# And load other scripts
+source("sampling.R")
+source("models.R")
+source("ensemble.R")
 
 # Make cluster groups:
 clust <- paste("feature",c(19,1,8,5,17,20,13,
@@ -73,12 +37,16 @@ clust <- paste("feature",c(19,1,8,5,17,20,13,
 clust1 <- clust[seq(1,21,3)]
 clust2 <- clust[seq(2,21,3)]
 clust3 <- clust[seq(3,21,3)]
-
 clust4 <- paste("feature",c(1,17,15,10,14,2,12),sep="")
 
 
-### Call sampling routine ###
-source("sampling.R")
+# Basic cv fit, single model #
+samples <- samplingcv("option2",trainindex,testindex,ytrain)
+sampleindex <- lapply(samples,function(x) x$index)
+model <- lapply(sampleindex,function(x) fitnnet(x))
+
+### Learning curve to analyse bias/variance trade off ###
+
 samples <- samplingcv("option5",trainindex,testindex,ytrain)
 # Extract sampling info:
 sample_info = data.frame(t(sapply(samples, function(x) unlist(x[-length(x)]))))
@@ -87,7 +55,6 @@ str(lapply(samples,function(x) x$index$test))
 
 
 ### Fit models ###
-source("models.R")
 ptm <- proc.time()
 models <- fitallmodels(data,samples,TRUE)
 proc.time() - ptm
@@ -150,7 +117,7 @@ prob_valid <- extract_pred_as_samples_models_df(models,"valid")
 
 # Average correlation with other models, in validation and test set,
 cor_valid_samples <- sapply(prob_valid,function(x) cor(x))
-cor_valid <- matrix(rowMeans(cor_valid_samples),models_n)
+cor_valid <- matrix(rowMeans(cor_valid_samples),length(models))
 cor_valid
 
 # Extract the actual y's using indices which may be used for fitting ensemble. 
@@ -161,7 +128,6 @@ samples_testindex_y <- lapply(lapply(samples, function(x) x$index$test),
                               function(y) data[y,outcome_name])
 
 ## Fitting ensemble models ## 
-source("ensemble.R")
 models_ens <- fitallensembles(models,samples_validindex_y)
 
 models_all <- c(models,models_ens)
@@ -187,11 +153,17 @@ models <- fitallmodels(data,samples,TRUE)
 proc.time() - ptm
 prob_test_ens <- extract_pred_as_samples_models_df(models,"test") 
 prob_test_avg <- ensemble_average_pred(prob_test_ens,"test")
-
 submission <- data.frame(t_id = testid,
                          probability = prob_test_avg[[1]]$prob$test)
 
-write_csv(submission,"./predictions/predictions_1.csv")
+write_csv(submission,"./predictions/predictions_2.csv")
+
+# Just extract the nnet
+submission <- data.frame(t_id = testid,
+                         probability = models[[length(models)]][[1]]$prob$test)
+write_csv(submission,"./predictions/predictions_nnet.csv")
+
+
 
 
 

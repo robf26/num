@@ -43,7 +43,7 @@ samplingcv <- function(type,trainindex,testindex,ytrain) {
   } else if (type=="option2") {
     ## Option 2:
     folds = 5 
-    repeats = 2
+    repeats = 1
     
     id = 1
     set.seed(1)
@@ -68,7 +68,7 @@ samplingcv <- function(type,trainindex,testindex,ytrain) {
     prop_train <- 0.6
     prop_valid <- 0.2
     prop_test <- 0.2
-    repeats = 20
+    repeats = 10
     
     id = 1
     set.seed(1)

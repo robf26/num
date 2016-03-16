@@ -3,8 +3,6 @@
 # model functions:
 # Take an index list including train, and optional valid, test
 # returns the model object with risk metrics, and optional prediction probabilities.
-
-# variables: 
 saveprob = TRUE
 
 fitallmodels <- function(data,samples,saveprob = TRUE) {
@@ -36,6 +34,17 @@ fitallmodels <- function(data,samples,saveprob = TRUE) {
   model <- lapply(sampleindex,function(x) fitglmsub(x,"glm_clust4",clust4))
   models <- c(models,list(model))
   print("Finished fitting glm_clust4")
+  
+  # glm net, elasto net
+  model <- lapply(sampleindex,function(x) fitglmnet(x))
+  models <- c(models,list(model))
+  print("Finished fitting glmnet")
+  
+  # fit nnet
+  # glm net, elasto net
+  model <- lapply(sampleindex,function(x) fitnnet(x))
+  models <- c(models,list(model))
+  print("Finished fitting nnet")
   
   return(models)
 }
@@ -69,6 +78,77 @@ fitglmsub <- function(index,
   #models <- append(models,list(model))
   return(model)
 }
+
+
+fitglmnet <- function(index,
+                      name="glmnet",features="all") {
+  
+  #require(glmnet)
+  #samples <- samplingcv("option2",trainindex,testindex,ytrain)
+  #sampleindex <- lapply(samples,function(x) x$index)
+  #index = sampleindex[[1]]
+  
+  model <- list()
+  model$name = name
+  if (as.vector(features)[1]=="all") {
+    features = names(data)[-length(names(data))]
+  }
+  model_fit <- glmnet(as.matrix(data[index$train,features]),
+                      data[index$train,"target"],
+                      family="binomial")
+  #plot(model_fit,label=TRUE)
+  #plot(model_fit, xvar = "dev", label = TRUE)
+  #cvfit = cv.glmnet(as.matrix(data[index$train,features]), 
+  #                  data[index$train,"target"], 
+  #                  family = "binomial", type.measure = "auc")
+  #plot(cvfit)
+  #cvfit$lambda.min
+  
+  prob <- lapply(index,function(x) {predict(model_fit,
+                                            newx=as.matrix(data[x,features]),
+                                            type="response",s=0.002)})
+  
+  logloss <- mapply(function(x,y) logLoss(data[x,"target"], y), 
+                    index, prob, SIMPLIFY = FALSE)
+  
+  # Save output
+  #if (saveprob) {
+    model$prob <- prob
+  #}
+  model$logloss <- logloss
+  #models <- append(models,list(model))
+  return(model)
+}
+
+# Fit a basic neural network
+fitnnet <- function(index,
+                      name="nnet") {
+  #samples <- samplingcv("option2",trainindex,testindex,ytrain)
+  #sampleindex <- lapply(samples,function(x) x$index)
+  #index = sampleindex[[1]]
+  
+  model <- list()
+  model$name = name
+  require(nnet)
+  yTrain1 <- data.frame(all)[,outcome_name]
+  yNet1 <- class.ind(yTrain1)
+  model_fit <- nnet(data[index$train,clust4],yNet1[index$train,],
+                size=9,maxit = 100,softmax=TRUE)
+
+  prob <- lapply(index,function(x) 
+            {predict(model_fit,data[x,clust4])[,2]})
+  
+  logloss <- mapply(function(x,y) logLoss(data[x,"target"], y), 
+                    index, prob, SIMPLIFY = FALSE)
+  
+  # Save output
+  if (saveprob) {
+    model$prob <- prob
+  }
+  model$logloss <- logloss
+  return(model)
+}
+
 
 ## Model that runs k-means then runs pca then fits glmnet.
 
@@ -113,8 +193,6 @@ old <- function(x) {
   
   submission <- data.frame(t_id = all[testindex,"t_id"],
                            probability = ensemble_prob_test)
-  
-  write_csv(submission,"./predictions/predictions_8.csv")
   
   # add in proper cross validation on above.
   
@@ -166,43 +244,6 @@ old <- function(x) {
   write_csv(submission,"./predictions/predictions_9.csv")
   
   # Maybe look to remove the gbm. Or learn to fit better?
-  
-  # Fit a basic neural network?
-  require(nnet)
-  yTrain1 <- data.frame(all)[trainindex1,outcome_name]
-  
-  yNet1 <- class.ind(yTrain)
-  nnet1 <- nnet(xTrain[trainindex1,clust1],yNet1[trainindex1,],
-                size=9,maxit = 500,softmax=TRUE)
-  # Change the decay?
-  nnet1_prob <- predict(nnet1,xTrain[trainindex2,clust1])[,2]
-  summary(nnet1_prob)
-  logLoss(data.frame(all)[trainindex2,outcome_name], 
-          as.numeric(nnet1_prob))
-  
-  # Try knn
-  require(class)
-  xTrainExValid <- data.frame(all)[trainindex1,feature_names]
-  yTrainExValid <- factor(data.frame(all)[trainindex1,outcome_name],,c("x0","x1"))
-  xValid <- data.frame(all)[trainindex2,feature_names]
-  yValid <- factor(data.frame(all)[trainindex2,outcome_name],,c("x0","x1"))
-  
-  knn1 <- knn(xTrainExValid[,clust4], xValid[,clust4], yTrainExValid, 
-              k = 50, l = 0, prob = TRUE, use.all = TRUE)
-  # Bit tricky to extract probabilities
-  knn_pred <- as.numeric(knn1)-1
-  
-  knn_prob1 <- attr(knn1, "prob")
-  knn_prob <- ifelse(knn_pred==1,knn_prob1,1-knn_prob1)
-  summary(knn_prob)
-  logLoss(actualv,knn_prob)
-  # hmm.. not working
-  # how does it work with many factors..
-  
-  # No information
-  logLoss(actual,rep(0.5,length(actual)))
-  # Random noise?
-  
   
   # Next try SVMs. Although may need to train on smaller sample size?
   # takes foreever to train!
@@ -260,37 +301,6 @@ old <- function(x) {
   logLoss(actualv,svm_prob)
   
   svm_prob <- predict(svm3,xTest, type="prob")[,2]
-  
-  
-  
-  
-  #######
-  # svm bagging
-  set.seed(1)
-  training2 <- data.frame(target=yTrain,xTrain)
-  
-  bags <- createFolds(yTrain,5)
-  yTrain1 <- data.frame(all)[trainindex,outcome_name]
-  
-  probs4 <- NA
-  fitsvmpredict <- function(index) {
-    #index = bags[[4]]
-    svm_fit <- ksvm(target~.,
-                    data=training2[index,
-                                   c("target",clust4)],
-                    kernel="rbfdot",C=0.5,
-                    prob.model=TRUE)
-    #predict(svm_fit, xTest, type="probabilities")[,2]  
-    probs <- predict(svm_fit, xTrain[-index,], type="probabilities")[,2] 
-    print(logLoss(yTrain1[-index],probs))
-    probsTest <- predict(svm_fit, xTest, type="probabilities")[,2]
-    probs4 <- cbind(probs4,probsTest)
-  }
-  
-  for (k in 1:5) {
-    fitsvmpredict(bags[[k]])
-  }
-  
   
 }
 
