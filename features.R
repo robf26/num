@@ -34,13 +34,14 @@ clust <- paste("feature",c(19,1,8,5,17,20,13,
 pca1 <- prcomp(data[,feature_names], center = TRUE, scale = TRUE)
 summary(pca1)
 data_pca_all <- data.frame(pca1$x)
-data_pca_all_scale <- scale(data_pca_all)
+data_pca_all_scale <- data.frame(scale(data_pca_all))
 # also try to chop at 3 stdev?
 data_pca_all_scale_c <- data_pca_all_scale
 data_pca_all_scale_c[data_pca_all_scale_c > 3] <- 3
 data_pca_all_scale_c[data_pca_all_scale_c < -3] <- -3
+data_pca_all_scale_c$target <- data$target
 
-# And also PCA of correlated factors.
+# And also PCA of correlated factor groups.
 groups <- split(clust,rep(1:7,each = 3))
 pcas <- lapply(groups,function(x) prcomp(data[,x], center = TRUE, scale = TRUE))
 lapply(pcas,function(x) summary(x))
@@ -52,7 +53,10 @@ names(data_pca_group_fac2) <- paste0("group",1:7,"pca2")
 data_pca_group_fac3 <- data.frame(sapply(pcas,function(y) y$x[,3]))
 names(data_pca_group_fac3) <- paste0("group",1:7,"pca3")
 data_pca_group <- bind_cols(data_pca_group_fac1,data_pca_group_fac2,data_pca_group_fac3)
+data_pca_group$target <- data$target
+rm(list=c("data_pca_group_fac1","data_pca_group_fac2","data_pca_group_fac3")) 
 
+corrplot(cor(data_pca_group[trainindex,]),"circle",tl.cex=0.6)
 
 # Spatial sign
 #dfs <- spatialSign(data[,feature_names])

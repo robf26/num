@@ -19,17 +19,17 @@ fitallmodels <- function(data,samples,saveprob = TRUE) {
   print("Finished fitting glm")
   
   # Fit other models based on cluster pairs
-  model <- lapply(sampleindex,function(x) fitglmsub(x,"glm_clust1",clust1))
-  models <- c(models,list(model))
-  print("Finished fitting glm_clust1")
+#  model <- lapply(sampleindex,function(x) fitglmsub(x,"glm_clust1",clust1))
+#  models <- c(models,list(model))
+#  print("Finished fitting glm_clust1")
   
-  model <- lapply(sampleindex,function(x) fitglmsub(x,"glm_clust2",clust2))
-  models <- c(models,list(model))
-  print("Finished fitting glm_clust2")
+#  model <- lapply(sampleindex,function(x) fitglmsub(x,"glm_clust2",clust2))
+#  models <- c(models,list(model))
+#  print("Finished fitting glm_clust2")
   
-  model <- lapply(sampleindex,function(x) fitglmsub(x,"glm_clust3",clust3))
-  models <- c(models,list(model))
-  print("Finished fitting glm_clust3")
+#  model <- lapply(sampleindex,function(x) fitglmsub(x,"glm_clust3",clust3))
+#  models <- c(models,list(model))
+#  print("Finished fitting glm_clust3")
   
   model <- lapply(sampleindex,function(x) fitglmsub(x,"glm_clust4",clust4))
   models <- c(models,list(model))
@@ -41,10 +41,29 @@ fitallmodels <- function(data,samples,saveprob = TRUE) {
   print("Finished fitting glmnet")
   
   # fit nnet
-  # glm net, elasto net
-  model <- lapply(sampleindex,function(x) fitnnet(x))
+#  model <- lapply(sampleindex,function(x) fitnnet(x))
+#  models <- c(models,list(model))
+#  print("Finished fitting nnet")
+  
+  # fit pca glm. Several pcas
+  pca_range = c(3,7)
+  for (q in pca_range) {
+    model <- lapply(sampleindex,function(x) fitglmpca(x, pcas = q))
+    models <- c(models,list(model))
+    print(paste0("Finished fitting glm_pca_",q))
+  }
+  
+  model <- lapply(sampleindex,function(x) fitglmpcagroup(x))
   models <- c(models,list(model))
-  print("Finished fitting nnet")
+  print("Finished fitting glmpca_group1")
+  
+  model <- lapply(sampleindex,function(x) fitglmpcagroup(x,cols=8:14))
+  models <- c(models,list(model))
+  print("Finished fitting glmpca_group2")
+  
+  #model <- lapply(sampleindex,function(x) fitglmpcagroup(x,cols=15:21))
+  #models <- c(models,list(model))
+  #print("Finished fitting glmpca_group3")
   
   return(models)
 }
@@ -107,14 +126,15 @@ fitglmnet <- function(index,
   prob <- lapply(index,function(x) {predict(model_fit,
                                             newx=as.matrix(data[x,features]),
                                             type="response",s=0.002)})
+  # FIX: What should lamda be?
   
   logloss <- mapply(function(x,y) logLoss(data[x,"target"], y), 
                     index, prob, SIMPLIFY = FALSE)
   
   # Save output
-  #if (saveprob) {
+  if (saveprob) {
     model$prob <- prob
-  #}
+  }
   model$logloss <- logloss
   #models <- append(models,list(model))
   return(model)
@@ -146,6 +166,54 @@ fitnnet <- function(index,
     model$prob <- prob
   }
   model$logloss <- logloss
+  return(model)
+}
+
+fitglmpca <- function(index,
+                      name="glm_pca_",pcas = 3) {
+  
+  model <- list()
+  model$name = paste0(name,pcas)
+  model_fit <- glm(target~ .,
+                   data=data_pca_all_scale_c[index$train,c(1:pcas,ncol(data))],
+                   family=binomial(logit))
+  prob <- lapply(index,function(x) {predict(model_fit,
+                                            newdata=data_pca_all_scale_c[x,1:pcas],
+                                            type="response")})
+  
+  logloss <- mapply(function(x,y) logLoss(data[x,"target"], y), 
+                    index, prob, SIMPLIFY = FALSE)
+  
+  # Save output
+  if (saveprob) {
+    model$prob <- prob
+  }
+  model$logloss <- logloss
+  #models <- append(models,list(model))
+  return(model)
+}
+
+fitglmpcagroup <- function(index,
+                      name="glm_pca_group_",cols = 1:7) {
+  
+  model <- list()
+  model$name = paste(name,cols[1],"_",cols[length(cols)],sep="")
+  model_fit <- glm(target~ .,
+                   data=data_pca_group[index$train,c(cols,ncol(data))],
+                   family=binomial(logit))
+  prob <- lapply(index,function(x) {predict(model_fit,
+                                            newdata=data_pca_group[x,cols],
+                                            type="response")})
+  
+  logloss <- mapply(function(x,y) logLoss(data[x,"target"], y), 
+                    index, prob, SIMPLIFY = FALSE)
+  
+  # Save output
+  if (saveprob) {
+    model$prob <- prob
+  }
+  model$logloss <- logloss
+  #models <- append(models,list(model))
   return(model)
 }
 
