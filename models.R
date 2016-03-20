@@ -18,6 +18,11 @@ fitallmodels <- function(data,samples,saveprob = TRUE) {
   models <- c(models,list(model))
   print("Finished fitting glm")
   
+  # fitmxnet
+  model <- lapply(sampleindex,function(x) fitmxnet(x))
+  models <- c(models,list(model))
+  print("Finished fitting mxnet")
+  
   # Fit other models based on cluster pairs
 #  model <- lapply(sampleindex,function(x) fitglmsub(x,"glm_clust1",clust1))
 #  models <- c(models,list(model))
@@ -36,9 +41,9 @@ fitallmodels <- function(data,samples,saveprob = TRUE) {
   print("Finished fitting glm_clust4")
   
   # glm net, elasto net
-  model <- lapply(sampleindex,function(x) fitglmnet(x))
-  models <- c(models,list(model))
-  print("Finished fitting glmnet")
+  #model <- lapply(sampleindex,function(x) fitglmnet(x))
+  #models <- c(models,list(model))
+  #print("Finished fitting glmnet")
   
   # fit nnet
 #  model <- lapply(sampleindex,function(x) fitnnet(x))
@@ -46,20 +51,20 @@ fitallmodels <- function(data,samples,saveprob = TRUE) {
 #  print("Finished fitting nnet")
   
   # fit pca glm. Several pcas
-  pca_range = c(3,7)
-  for (q in pca_range) {
-    model <- lapply(sampleindex,function(x) fitglmpca(x, pcas = q))
-    models <- c(models,list(model))
-    print(paste0("Finished fitting glm_pca_",q))
-  }
+  #pca_range = c(3,7)
+  #for (q in pca_range) {
+  #  model <- lapply(sampleindex,function(x) fitglmpca(x, pcas = q))
+  #  models <- c(models,list(model))
+  #  print(paste0("Finished fitting glm_pca_",q))
+  #}
   
   model <- lapply(sampleindex,function(x) fitglmpcagroup(x))
   models <- c(models,list(model))
   print("Finished fitting glmpca_group1")
   
-  model <- lapply(sampleindex,function(x) fitglmpcagroup(x,cols=8:14))
-  models <- c(models,list(model))
-  print("Finished fitting glmpca_group2")
+  #model <- lapply(sampleindex,function(x) fitglmpcagroup(x,cols=8:14))
+  #models <- c(models,list(model))
+  #print("Finished fitting glmpca_group2")
   
   #model <- lapply(sampleindex,function(x) fitglmpcagroup(x,cols=15:21))
   #models <- c(models,list(model))
@@ -371,5 +376,82 @@ old <- function(x) {
   svm_prob <- predict(svm3,xTest, type="prob")[,2]
   
 }
+
+
+
+# Fit a basic neural network
+fitmxnet <- function(index,
+                    name="mxnet") {
+  # To run separately from here...
+  samples <- samplingcv("option1",trainindex,testindex,ytrain)
+  sampleindex <- lapply(samples,function(x) x$index)
+  index = sampleindex[[1]]
+  
+  model <- list()
+  model$name = "mxnet"
+  require(mxnet)
+  
+  mx.set.seed(0)
+  #model_fit <- mx.mlp(data.matrix(data[index$train,feature_names]), 
+  #                data[index$train,outcome_name], 
+  #                hidden_node=20, out_node=2, out_activation="softmax",
+  #                num.round=30, array.batch.size=50,
+  #                dropout = 0.5,
+  #                learning.rate=0.005, momentum=0.9, 
+  #                eval.metric=mx.metric.accuracy)
+  # logloss official of 0.6909
+  
+  data1 <- mx.symbol.Variable("data")
+  l1 <- mx.symbol.FullyConnected(data1, num_hidden=22, name="layer1")
+  l1 <- mx.symbol.Activation(l1, act_type = "tanh")
+  l1 <- mx.symbol.Dropout(l1, p = 0.2)  # Option to include dropout
+  l2 <- mx.symbol.FullyConnected(l1, num_hidden=30, name="layer2")
+  l2 <- mx.symbol.Activation(l2, act_type = "tanh")
+  l3 <- mx.symbol.FullyConnected(l2, num_hidden=22, name="layer3")
+  l3 <- mx.symbol.Activation(l3, act_type = "tanh")
+  net <- mx.symbol.FullyConnected(l3, num_hidden = 2)
+  net <- mx.symbol.SoftmaxOutput(net)
+  # 1 layer, drop = 0.3, batch 50, rate 0.005, round = 10, act = relu, 22 layers
+  demo.metric.logloss <- mx.metric.custom("logloss", function(label, pred) {
+    res <- logLoss(label,t(pred[2,]))
+    # label is vector, size batch size, n. pred is n by 2 outputs
+    return(res)
+  })
+  mx.set.seed(0)
+  # 2 layer. wd: 0.00001, learn 0.005, batch 25
+  test.x = data.matrix(data[index$test,feature_names])
+  test.y = data[index$test,outcome_name]
+  model_fit <- mx.model.FeedForward.create(net, 
+                                       X=data.matrix(data[index$train,feature_names]), 
+                                       y=data[index$train,outcome_name],
+                                       ctx=mx.cpu(), num.round=250, 
+                                       array.batch.size=50,
+                                       learning.rate=0.005, momentum=0.9, 
+                                       wd= 0.00001,
+                                       initializer=mx.init.uniform(0.07),
+                                       eval.metric=demo.metric.logloss)
+                                       #eval.data=list(data=test.x, label=test.y))
+                                       #eval.metric=mx.metric.accuracy)
+
+
+  prob <- lapply(index,function(x) 
+  {predict(model_fit,data.matrix(data[x,feature_names]))[2,]})
+  
+  logloss <- mapply(function(x,y) logLoss(data[x,"target"], y), 
+                    index, prob, SIMPLIFY = FALSE)
+  
+  logloss
+  submission <- data.frame(t_id = testid,
+                           probability = prob$test)
+  
+  # Save output
+  if (saveprob) {
+    model$prob <- prob
+  }
+  model$logloss <- logloss
+  return(model)
+}
+
+
 
 

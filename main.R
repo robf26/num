@@ -45,6 +45,10 @@ samples <- samplingcv("option2",trainindex,testindex,ytrain)
 sampleindex <- lapply(samples,function(x) x$index)
 model <- lapply(sampleindex,function(x) fitnnet(x))
 
+
+
+
+
 ### Learning curve to analyse bias/variance trade off ###
 
 samples <- samplingcv("option5",trainindex,testindex,ytrain)
@@ -156,12 +160,13 @@ prob_test_avg <- ensemble_average_pred(prob_test_ens,"test")
 submission <- data.frame(t_id = testid,
                          probability = prob_test_avg[[1]]$prob$test)
 
-write_csv(submission,"./predictions/predictions_3.csv")
+
+write_csv(submission,"./predictions/predictions_7.csv")
 
 # Just extract the nnet
-submission <- data.frame(t_id = testid,
-                         probability = models[[length(models)]][[1]]$prob$test)
-write_csv(submission,"./predictions/predictions_nnet.csv")
+#submission <- data.frame(t_id = testid,
+#                         probability = models[[length(models)]][[1]]$prob$test)
+#write_csv(submission,"./predictions/predictions_nnet.csv")
 
 
 
