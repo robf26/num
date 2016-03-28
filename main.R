@@ -161,7 +161,7 @@ submission <- data.frame(t_id = testid,
                          probability = prob_test_avg[[1]]$prob$test)
 
 
-write_csv(submission,"./predictions/predictions_7.csv")
+write_csv(submission,"./predictions/predictions_mxlr3.csv")
 
 # Just extract the nnet
 #submission <- data.frame(t_id = testid,

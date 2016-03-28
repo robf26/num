@@ -146,6 +146,75 @@ P
 }
 
 
+## OOB stacking ##
+# adapted code from:
+# https://www.kaggle.com/files/2676/DS06_nnet_Bagstack%20-%20Share.R
+samples <- samplingcv("option2",trainindex,testindex,ytrain)
+sampleindex <- lapply(samples,function(x) x$index)
+index = sampleindex[[1]]
+#data_f <- data_pca_all_scale_c[,c(1:10,22)]
+data_f <- data
+y <- data_f$target
+data_f$target <- factor(data_f$target,labels = c("x0","x1"))
+
+logloss.func <- function(x) -1*mean(log(ifelse(y==1,x,1-x)),na.rm=TRUE)
+
+train_flag <- rep(FALSE,nrow(data_f))
+train_flag[index$train] <- TRUE
+
+###Put together the dataset of out of fold and final predictions for each base learner
+
+library(foreach)
+library(doParallel)
+ptm <- proc.time()
+cl <- makeCluster(detectCores()-1) 
+registerDoParallel(cl)
+
+bagged <- foreach(
+  i=1:300
+  #,.packages='nnet'
+  #,.verbose=TRUE
+) %dopar% {
+  ##Bag 
+  curr.train <- sample.int(sum(train_flag),sum(train_flag),TRUE)
+  curr.oob <- c(!(seq(1,sum(train_flag)) %in% curr.train),rep(FALSE,sum(!train_flag)))
+  ## randomise columns?
+  ##Train 
+  glm_fit <- glm(target~ .,
+                 data=data_f[curr.train,],
+                 family=binomial(logit))
+  ##Pred 
+  oob.pred <- rep(NA,sum(train_flag))
+  oob.pred[curr.oob] <- predict(glm_fit,data_f[curr.oob,],type="response")
+  return(list(
+    oob.pred=oob.pred
+    ,test.pred=predict(glm_fit,data_f[index$test,],type="response")
+  ))
+}
+
+stopCluster(cl)
+proc.time() - ptm
+
+##Extract the pieces
+res.oob.pred <- sapply(bagged,function(x) x$oob.pred)
+res.list.oob.pred <- lapply(bagged,function(x) x$oob.pred)
+res.test.pred <- sapply(bagged,function(x) x$test.pred)
+
+##Show extremes
+summary(apply(res.oob.pred,2,max,na.rm=TRUE));summary(apply(res.oob.pred,2,min,na.rm=TRUE))
+
+##A single oob prediction for all
+logloss.func(apply(res.oob.pred,1,mean,na.rm=TRUE))
+
+##Logloss for each oob learner
+res.oob.logloss <- apply(res.oob.pred,2,logloss.func)
+summary(res.oob.logloss)
+
+
+
+
+
+
 
 
 

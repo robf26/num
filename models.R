@@ -222,220 +222,67 @@ fitglmpcagroup <- function(index,
   return(model)
 }
 
-
 ## Model that runs k-means then runs pca then fits glmnet.
 
 
-## Other models
-old <- function(x) {
-  
-  # Now lets try bagging glm
-  # bagging logistic regression
-  # http://stackoverflow.com/questions/21785699/bagging-logistic-regression-in-r
-  
-  sampleindex <- lapply(samples,function(x) x$index)
-  
-  library(foreach)
-  set.seed(1)
-  training2      <- data.frame(all)[trainindex,1:22]
-  length_divisor <- 2
-  iterations     <- 50
-  features <- 10
-  predictions <- foreach(m=1:iterations,.combine=rbind) %do% {
-    training_positions <- sample(nrow(training2), 
-                                 size=floor((nrow(training2)/length_divisor)))
-    #  train_pos<-1:nrow(training2) %in% training_positions
-    glm_fit <- glm(target~ . ,
-                   data=training2[training_positions,
-                                  c(sample(1:21,features),22)],
-                   family=binomial(logit))
-    predict(glm_fit,
-            newdata=xTest, #xTest
-            type="response")
-  }
-  #predictions
-  bag_prob <- apply(t(predictions),1,mean)
-  logLoss(actual_train, bag_prob)
-  
-  cor(data.frame(bag_prob,models_prob(models,xTrain)))
-  cor(data.frame(bag_prob,models_prob(models,xTest)))
-  
-  ensemble_prob_test <- apply(data.frame(bag_prob,
-                                         models_prob(models,xTest)),
-                              1,mean)
-  
-  submission <- data.frame(t_id = all[testindex,"t_id"],
-                           probability = ensemble_prob_test)
-  
-  # add in proper cross validation on above.
-  
-  # Check individual factor signs
-  coeff <- NA
-  for (i in 1:21) {
-    fit <- glm(target~.,binomial,
-               all[trainindex,c(i,22)])
-    summary(fit)
-    coeff[i] <- fit$coefficients[2]
-  }
-  signs <- sign(coeff)
-  
-  # Set up validation set
-  set.seed(1)
-  trainindex1 <- sample(trainindex,floor(0.7*length(trainindex)))
-  trainindex2 <- setdiff(trainindex,trainindex1)
-  require(gbm)
-  set.seed(5)
-  mgbm1 <- gbm(target~.,
-               "bernoulli",
-               data=all[trainindex1,c(outcome_name,feature_names)],
-               var.monotone=signs,
-               n.trees=50,
-               interaction.depth=1,
-               n.minobsinnode = 1,
-               shrinkage = 0.05,
-               bag.fraction = 0.5,
-               train.fraction = 0.5,
-               n.cores = 7)
-  
-  probgbm = predict(mgbm1,all[trainindex2,],type="response") 
-  actualv <- data.frame(all)[trainindex2,outcome_name]
-  logLoss(actualv, probgbm)
-  
-  probgbm <- predict(mgbm1,xTrain,type="response") 
-  
-  cor(data.frame(probgbm,models_prob(models,xTrain)))
-  
-  probgbm <- predict(mgbm1,xTest,type="response") 
-  
-  ensemble_prob_test <- apply(data.frame(probgbm,bag_prob,
-                                         models_prob(models,xTest)),
-                              1,mean)
-  
-  submission <- data.frame(t_id = all[testindex,"t_id"],
-                           probability = ensemble_prob_test)
-  
-  write_csv(submission,"./predictions/predictions_9.csv")
-  
-  # Maybe look to remove the gbm. Or learn to fit better?
-  
-  # Next try SVMs. Although may need to train on smaller sample size?
-  # takes foreever to train!
-  require(kernlab)
-  datat <- data.frame(target=yTrainExValid,xTrainExValid)
-  
-  # ok with 5000, slows down with >10K
-  svm1 <- ksvm(target~.,data=datat[1:10000,c("target",clust4)],
-               kernel="rbfdot",
-               kpar=list(sigma=0.1),C=1,
-               prob.model=TRUE)
-  svm_prob <- predict(svm1,xValid[,clust4], type="probabilities")
-  logLoss(actualv,svm_prob)
-  # Still pretty rubbish fit
-  # Tube with other costs and sigma?
-  svm2 <- ksvm(target~.,data=datat[30001:40000,c("target",clust4)],
-               kernel="rbfdot",C=0.5,
-               prob.model=TRUE)
-  svm_prob <- predict(svm2,xValid, type="probabilities")[,2]
-  logLoss(actualv,svm_prob)
-  
-  #svm_prob1 <- svm_prob
-  #svm_prob2 <- svm_prob
-  svm_prob3 <- svm_prob
-  cor(data.frame(svm_prob1,svm_prob2,svm_prob3))
-  
-  cor(data.frame(svm_prob,models_prob(models,xValid)))
-  
-  library(doParallel)
-  cl <- makeCluster(detectCores()-1) 
-  registerDoParallel(cl)
-  Train <- data.frame(target=yTrain,xTrain)
-  trcontrol_2 = trainControl(
-    method = "repeatedcv",
-    number = 3,
-    repeats = 3,
-    returnResamp= "none",
-    verboseIter = TRUE,
-    returnData = FALSE,
-    classProbs = TRUE, 
-    summaryFunction = multiClassSummary,
-    allowParallel = TRUE
-  )
-  set.seed(1)
-  svm_grid <- expand.grid(sigma = c(.015),C = c(0.25))
-  svm_sample_size = 3000
-  svm_sample_index <- sample(1:length(yTrain),svm_sample_size)
-  svm3 <- train(target ~ ., data=Train[svm_sample_index,
-                                       c("target",clust1)], 
-                method="svmRadial",
-                trControl = trcontrol_2,
-                tuneGrid = svm_grid,
-                metric = "logLoss")
-  svm_prob <- predict(svm3,xValid[,clust1], type="prob")[,2]
-  logLoss(actualv,svm_prob)
-  
-  svm_prob <- predict(svm3,xTest, type="prob")[,2]
-  
-}
-
-
-
-# Fit a basic neural network
+# Fit a deep neural network?
 fitmxnet <- function(index,
                     name="mxnet") {
   # To run separately from here...
-  samples <- samplingcv("option1",trainindex,testindex,ytrain)
+  require(mxnet)
+  samples <- samplingcv("option2",trainindex,testindex,ytrain)
   sampleindex <- lapply(samples,function(x) x$index)
   index = sampleindex[[1]]
+  pcacols <- 15
+  test.x = data.matrix(data_pca_all_scale_c[index$test,1:pcacols])
+  test.y = data[index$test,outcome_name]
   
-  model <- list()
-  model$name = "mxnet"
-  require(mxnet)
-  
-  mx.set.seed(0)
-  #model_fit <- mx.mlp(data.matrix(data[index$train,feature_names]), 
-  #                data[index$train,outcome_name], 
-  #                hidden_node=20, out_node=2, out_activation="softmax",
-  #                num.round=30, array.batch.size=50,
-  #                dropout = 0.5,
-  #                learning.rate=0.005, momentum=0.9, 
-  #                eval.metric=mx.metric.accuracy)
-  # logloss official of 0.6909
-  
-  data1 <- mx.symbol.Variable("data")
-  l1 <- mx.symbol.FullyConnected(data1, num_hidden=22, name="layer1")
-  l1 <- mx.symbol.Activation(l1, act_type = "tanh")
-  l1 <- mx.symbol.Dropout(l1, p = 0.2)  # Option to include dropout
-  l2 <- mx.symbol.FullyConnected(l1, num_hidden=30, name="layer2")
-  l2 <- mx.symbol.Activation(l2, act_type = "tanh")
-  l3 <- mx.symbol.FullyConnected(l2, num_hidden=22, name="layer3")
-  l3 <- mx.symbol.Activation(l3, act_type = "tanh")
-  net <- mx.symbol.FullyConnected(l3, num_hidden = 2)
-  net <- mx.symbol.SoftmaxOutput(net)
-  # 1 layer, drop = 0.3, batch 50, rate 0.005, round = 10, act = relu, 22 layers
   demo.metric.logloss <- mx.metric.custom("logloss", function(label, pred) {
     res <- logLoss(label,t(pred[2,]))
     # label is vector, size batch size, n. pred is n by 2 outputs
     return(res)
   })
+  
+  
+  model <- list()
+  model$name = "mxnet"
+  #require(mxnet)
+  
+  # Include L2 regularisation wd, to not overfit
+  # Dropout to avoid overfitting, but only on 1st layer for convergence?
+  data1 <- mx.symbol.Variable("data")
+  l1 <- mx.symbol.FullyConnected(data1, num_hidden=pcacols, name="layer1")
+  l1 <- mx.symbol.Activation(l1, act_type = "tanh")
+  l1 <- mx.symbol.Dropout(l1, p = 0.2)  # Option to include dropout
+  l2 <- mx.symbol.FullyConnected(l1, num_hidden=pcacols, name="layer2")
+  l2 <- mx.symbol.Activation(l2, act_type = "tanh")
+  l2 <- mx.symbol.Dropout(l2, p = 0.4) 
+  l3 <- mx.symbol.FullyConnected(l2, num_hidden=pcacols, name="layer3")
+  l3 <- mx.symbol.Activation(l3, act_type = "tanh")
+  net <- mx.symbol.FullyConnected(l3, num_hidden = 2)
+  net <- mx.symbol.SoftmaxOutput(net)
+  # 1 layer, drop = 0.3, batch 50, rate 0.005, round = 10, act = relu, 22 layers
+
   mx.set.seed(0)
   # 2 layer. wd: 0.00001, learn 0.005, batch 25
-  test.x = data.matrix(data[index$test,feature_names])
-  test.y = data[index$test,outcome_name]
+
   model_fit <- mx.model.FeedForward.create(net, 
-                                       X=data.matrix(data[index$train,feature_names]), 
+                                       X=data.matrix(data_pca_all_scale_c[index$train,1:pcacols]), 
                                        y=data[index$train,outcome_name],
-                                       ctx=mx.cpu(), num.round=250, 
+                                       ctx=mx.cpu(), num.round=30, 
                                        array.batch.size=50,
-                                       learning.rate=0.005, momentum=0.9, 
-                                       wd= 0.00001,
+                                       momentum=0.9, 
+                                       wd= 0.0001,
+                                       learning.rate= 0.1,
+                                       lr_scheduler=FactorScheduler(1000,0.85,TRUE),
                                        initializer=mx.init.uniform(0.07),
-                                       eval.metric=demo.metric.logloss)
-                                       #eval.data=list(data=test.x, label=test.y))
+                                       eval.metric=demo.metric.logloss,
+                                       eval.data=list(data=test.x, label=test.y))
                                        #eval.metric=mx.metric.accuracy)
 
 
   prob <- lapply(index,function(x) 
-  {predict(model_fit,data.matrix(data[x,feature_names]))[2,]})
+  {predict(model_fit,data.matrix(data_pca_all_scale_c[x,1:pcacols]))[2,]})
   
   logloss <- mapply(function(x,y) logLoss(data[x,"target"], y), 
                     index, prob, SIMPLIFY = FALSE)
@@ -451,6 +298,111 @@ fitmxnet <- function(index,
   model$logloss <- logloss
   return(model)
 }
+
+
+# How to stop rf overfitting?
+fitrf <- function(index,
+                  name="rf") {
+  samples <- samplingcv("option2",trainindex,testindex,ytrain)
+  sampleindex <- lapply(samples,function(x) x$index)
+  index = sampleindex[[1]]
+  model <- list()
+  model$name = "rf"
+  require(randomForest)
+  # Need to make response a factor
+  data_f <- data_pca_all_scale_c[,c(1:10,22)]
+  data_f$target <- factor(data_f$target,labels = c("x0","x1"))
+  
+  set.seed(1)
+  model_fit <- randomForest(target~ .,
+                   data=data_f[index$train,],
+                   mtry = 5,
+                   strata = target,
+                   nodesize = 10,
+                   ntree = 500)
+  
+  prob <- lapply(index,function(x) {predict(model_fit,
+                                            newdata=data_f[x,],
+                                            type="prob")[,2]})
+  summary(prob[[1]])
+  logloss <- mapply(function(x,y) logLoss(data[x,"target"], y), 
+                    index, prob, SIMPLIFY = FALSE)
+  logloss
+  
+  # Save output
+  if (saveprob) {
+    model$prob <- prob
+  }
+  model$logloss <- logloss
+  #models <- append(models,list(model))
+  return(model)
+}
+
+
+fitbaggedglmrf <- function(index,
+                  name="bagged_glm_sampled") {
+  
+  samples <- samplingcv("option2",trainindex,testindex,ytrain)
+  sampleindex <- lapply(samples,function(x) x$index)
+  index = sampleindex[[1]]
+  
+  model <- list()
+  model$name = "bagged_glm_sampled"
+
+  # Need to make response a factor
+  data_f <- data_pca_all_scale_c[,c(1:10,22)]
+  data_f$target <- factor(data_f$target,labels = c("x0","x1"))
+  
+  library(foreach)
+  set.seed(1)
+  training2      <- data_f[index$train,]
+  length_divisor <- 2
+  iterations     <- 100
+  features <- 5
+  
+  library(doParallel)
+  ptm <- proc.time()
+  cl <- makeCluster(detectCores()-1) 
+  registerDoParallel(cl)
+  bagged <- foreach(m=1:iterations) %dopar% {
+    # ,.combine=rbind
+    training_positions <- sample(nrow(training2), 
+                                 size=floor((nrow(training2)/length_divisor)))
+    glm_fit <- glm(target~ . ,
+                   data=data_f[training_positions,],
+                   family=binomial(logit))
+    
+    return(list(
+      n=m
+      ,test.pred=predict(glm_fit,
+                         newdata=data_f[index$test,], 
+                         type="response")
+    ))
+  }
+  stopCluster(cl)  
+  proc.time() - ptm
+  
+  ##Extract the pieces
+  res.test.pred <- sapply(bagged,function(x) x$test.pred)
+  
+  #predictions
+  prob <- list()
+  prob$test <- apply(res.test.pred,1,mean)
+  logloss <- logLoss(data[index$test,"target"],prob$test)
+  logloss
+  summary(prob[[1]])
+  
+  # Save output
+  if (saveprob) {
+    model$prob <- prob
+  }
+  model$logloss <- logloss
+  #models <- append(models,list(model))
+  return(model)
+}
+
+
+
 
 
 
