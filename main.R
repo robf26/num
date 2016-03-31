@@ -118,6 +118,9 @@ proc.time() - ptm
 # Extract predictions to use for correlation analysis
 prob_valid <- extract_pred_as_samples_models_df(models,"valid") 
 #prob_test <- extract_pred_as_samples_models_df(models,"test") 
+#pmxnet <- lapply(models[[2]],function(x) x$prob$test)
+#pbag <- lapply(models[[4]],function(x) x$prob$test)
+#pboost <- lapply(models[[5]],function(x) x$prob$test)
 
 # Average correlation with other models, in validation and test set,
 cor_valid_samples <- sapply(prob_valid,function(x) cor(x))
@@ -161,7 +164,7 @@ submission <- data.frame(t_id = testid,
                          probability = prob_test_avg[[1]]$prob$test)
 
 
-write_csv(submission,"./predictions/predictions_mxlr3.csv")
+write_csv(submission,"./predictions/predictions_mxlr4.csv")
 
 # Just extract the nnet
 #submission <- data.frame(t_id = testid,

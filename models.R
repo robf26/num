@@ -58,9 +58,19 @@ fitallmodels <- function(data,samples,saveprob = TRUE) {
   #  print(paste0("Finished fitting glm_pca_",q))
   #}
   
-  model <- lapply(sampleindex,function(x) fitglmpcagroup(x))
+  #model <- lapply(sampleindex,function(x) fitglmpcagroup(x))
+  #models <- c(models,list(model))
+  #print("Finished fitting glmpca_group1")
+  
+  # bagged
+  model <- lapply(sampleindex,function(x) fitbaggedglm(x))
   models <- c(models,list(model))
-  print("Finished fitting glmpca_group1")
+  print("Finished fitting baggedglm")
+  
+  # fitxgboost
+  model <- lapply(sampleindex,function(x) fitxgboost(x))
+  models <- c(models,list(model))
+  print("Finished fitting xgboost")
   
   #model <- lapply(sampleindex,function(x) fitglmpcagroup(x,cols=8:14))
   #models <- c(models,list(model))
@@ -77,6 +87,11 @@ fitallmodels <- function(data,samples,saveprob = TRUE) {
 fitglmsub <- function(index,
                       name="glm",features="all") {
 
+  samples <- samplingcv("option1",trainindex,testindex,ytrain)
+  sampleindex <- lapply(samples,function(x) x$index)
+  index = sampleindex[[1]]
+  features = clust4
+  
   model <- list()
   model$name = name
   if (as.vector(features)[1]=="all") {
@@ -93,6 +108,8 @@ fitglmsub <- function(index,
 
   logloss <- mapply(function(x,y) logLoss(data[x,"target"], y), 
                     index, prob, SIMPLIFY = FALSE)
+  submission_glm4 <- data.frame(t_id = testid,
+                                 probability = prob$test)
   
   # Save output
   if (saveprob) {
@@ -148,9 +165,9 @@ fitglmnet <- function(index,
 # Fit a basic neural network
 fitnnet <- function(index,
                       name="nnet") {
-  #samples <- samplingcv("option2",trainindex,testindex,ytrain)
-  #sampleindex <- lapply(samples,function(x) x$index)
-  #index = sampleindex[[1]]
+  samples <- samplingcv("option2",trainindex,testindex,ytrain)
+  sampleindex <- lapply(samples,function(x) x$index)
+  index = sampleindex[[1]]
   
   model <- list()
   model$name = name
@@ -158,7 +175,7 @@ fitnnet <- function(index,
   yTrain1 <- data.frame(all)[,outcome_name]
   yNet1 <- class.ind(yTrain1)
   model_fit <- nnet(data[index$train,clust4],yNet1[index$train,],
-                size=9,maxit = 100,softmax=TRUE)
+                size=9,maxit = 500,softmax=TRUE)
 
   prob <- lapply(index,function(x) 
             {predict(model_fit,data[x,clust4])[,2]})
@@ -230,11 +247,10 @@ fitmxnet <- function(index,
                     name="mxnet") {
   # To run separately from here...
   require(mxnet)
-  samples <- samplingcv("option2",trainindex,testindex,ytrain)
-  sampleindex <- lapply(samples,function(x) x$index)
-  index = sampleindex[[1]]
-  pcacols <- 15
-  test.x = data.matrix(data_pca_all_scale_c[index$test,1:pcacols])
+  #samples <- samplingcv("option2",trainindex,testindex,ytrain)
+  #sampleindex <- lapply(samples,function(x) x$index)
+  #index = sampleindex[[1]]
+  test.x = data.matrix(data[index$test,1:21])
   test.y = data[index$test,outcome_name]
   
   demo.metric.logloss <- mx.metric.custom("logloss", function(label, pred) {
@@ -251,25 +267,24 @@ fitmxnet <- function(index,
   # Include L2 regularisation wd, to not overfit
   # Dropout to avoid overfitting, but only on 1st layer for convergence?
   data1 <- mx.symbol.Variable("data")
-  l1 <- mx.symbol.FullyConnected(data1, num_hidden=pcacols, name="layer1")
+  l1 <- mx.symbol.FullyConnected(data1, num_hidden=21, name="layer1")
   l1 <- mx.symbol.Activation(l1, act_type = "tanh")
   l1 <- mx.symbol.Dropout(l1, p = 0.2)  # Option to include dropout
-  l2 <- mx.symbol.FullyConnected(l1, num_hidden=pcacols, name="layer2")
+  l2 <- mx.symbol.FullyConnected(l1, num_hidden=21, name="layer2")
   l2 <- mx.symbol.Activation(l2, act_type = "tanh")
-  l2 <- mx.symbol.Dropout(l2, p = 0.4) 
-  l3 <- mx.symbol.FullyConnected(l2, num_hidden=pcacols, name="layer3")
+  l2 <- mx.symbol.Dropout(l2, p = 0.5) 
+  l3 <- mx.symbol.FullyConnected(l2, num_hidden=21, name="layer3")
   l3 <- mx.symbol.Activation(l3, act_type = "tanh")
   net <- mx.symbol.FullyConnected(l3, num_hidden = 2)
   net <- mx.symbol.SoftmaxOutput(net)
-  # 1 layer, drop = 0.3, batch 50, rate 0.005, round = 10, act = relu, 22 layers
 
-  mx.set.seed(0)
+  mx.set.seed(1)
   # 2 layer. wd: 0.00001, learn 0.005, batch 25
 
   model_fit <- mx.model.FeedForward.create(net, 
-                                       X=data.matrix(data_pca_all_scale_c[index$train,1:pcacols]), 
+                                       X=data.matrix(data[index$train,1:21]), 
                                        y=data[index$train,outcome_name],
-                                       ctx=mx.cpu(), num.round=30, 
+                                       ctx=mx.cpu(), num.round=50, 
                                        array.batch.size=50,
                                        momentum=0.9, 
                                        wd= 0.0001,
@@ -280,16 +295,15 @@ fitmxnet <- function(index,
                                        eval.data=list(data=test.x, label=test.y))
                                        #eval.metric=mx.metric.accuracy)
 
-
   prob <- lapply(index,function(x) 
-  {predict(model_fit,data.matrix(data_pca_all_scale_c[x,1:pcacols]))[2,]})
+  {predict(model_fit,data.matrix(data[x,1:21]))[2,]})
   
   logloss <- mapply(function(x,y) logLoss(data[x,"target"], y), 
                     index, prob, SIMPLIFY = FALSE)
   
-  logloss
-  submission <- data.frame(t_id = testid,
-                           probability = prob$test)
+  #logloss
+  #submission_mxnet <- data.frame(t_id = testid,
+  #                         probability = prob$test)
   
   # Save output
   if (saveprob) {
@@ -339,15 +353,15 @@ fitrf <- function(index,
 }
 
 
-fitbaggedglmrf <- function(index,
-                  name="bagged_glm_sampled") {
+fitbaggedglm <- function(index,
+                  name="bagged_glm") {
   
-  samples <- samplingcv("option2",trainindex,testindex,ytrain)
-  sampleindex <- lapply(samples,function(x) x$index)
-  index = sampleindex[[1]]
+  #samples <- samplingcv("option1",trainindex,testindex,ytrain)
+  #sampleindex <- lapply(samples,function(x) x$index)
+  #index = sampleindex[[1]]
   
   model <- list()
-  model$name = "bagged_glm_sampled"
+  model$name = "bagged_glm"
 
   # Need to make response a factor
   data_f <- data_pca_all_scale_c[,c(1:10,22)]
@@ -361,7 +375,7 @@ fitbaggedglmrf <- function(index,
   features <- 5
   
   library(doParallel)
-  ptm <- proc.time()
+  #ptm <- proc.time()
   cl <- makeCluster(detectCores()-1) 
   registerDoParallel(cl)
   bagged <- foreach(m=1:iterations) %dopar% {
@@ -380,17 +394,20 @@ fitbaggedglmrf <- function(index,
     ))
   }
   stopCluster(cl)  
-  proc.time() - ptm
+  #proc.time() - ptm
   
   ##Extract the pieces
   res.test.pred <- sapply(bagged,function(x) x$test.pred)
+  
+  #submission_bag <- data.frame(t_id = testid,
+  #                             probability = res.test.pred)
   
   #predictions
   prob <- list()
   prob$test <- apply(res.test.pred,1,mean)
   logloss <- logLoss(data[index$test,"target"],prob$test)
-  logloss
-  summary(prob[[1]])
+  #logloss
+  #summary(prob[[1]])
   
   # Save output
   if (saveprob) {
@@ -402,7 +419,101 @@ fitbaggedglmrf <- function(index,
 }
 
 
+fitxgboost <- function(index,
+                           name="xgboost") {
+# Fit a gbm with xgboost
+## Xgboost ##
+# Try fitting xgboost as per:
+# https://www.kaggle.com/tqchen/otto-group-product-classification-challenge/understanding-xgboost-model-on-otto-data/notebook
+library(xgboost)
+require(methods)
 
+#samples <- samplingcv("option1",trainindex,testindex,ytrain)
+#sampleindex <- lapply(samples,function(x) x$index)
+#index = sampleindex[[1]]
+
+model <- list()
+model$name = "xgboost"
+
+y <- data_pca_all_scale_c$target[index$train]
+x <- as.matrix(data_pca_all_scale_c[index$train,1:21])
+
+# http://stats.stackexchange.com/questions/171043/how-to-tune-hyperparameters-of-xgboost-trees
+# nrounds, max_depth, eta, gamma, colsample_bytree, min_child_weight
+# https://github.com/dmlc/xgboost/blob/master/doc/parameter.md
+xgb_params_1 = list(
+  objective = "binary:logistic",  
+  eval_metric = "logloss",
+  verbose = 1,
+  max.depth = 2,
+  eta = 0.01,
+  gamma = 1,
+  colsample_bytree = 0.35,
+  subsample = 0.25,
+  max_delta_step = 5,
+  min_child_weight = 20
+)
+
+# cross-validate xgboost to get the accurate measure of error
+#xgb_cv_1 = xgb.cv(params = xgb_params_1,
+#                  data = x,
+#                  label = y,
+#                  nrounds = 2000, 
+#                  nfold = 5,             # number of folds in K-fold
+#                  prediction = TRUE,      # return the prediction using the final model 
+#                  showsd = TRUE,          # standard deviation of loss across folds
+#                  stratified = TRUE,      # sample is unbalanced; use stratified sampling
+#                  verbose = TRUE,
+#                  print.every.n = 20, 
+#                  early.stop.round = 200
+#)
+
+# plot the cv metric for the training and testing samples
+#xgb_cv_1$dt %>%
+#  select(-contains("std")) %>%
+#  mutate(IterationNum = 1:n()) %>%
+#  gather(TestOrTrain, LogLoss, -IterationNum) %>%
+#  ggplot(aes(x = IterationNum, y = LogLoss, group = TestOrTrain, color = TestOrTrain)) + 
+#  geom_line() + 
+#  theme_bw()
+
+# fit the model with the parameters specified above
+xgb_1 = xgboost(data = x,
+                label = y,
+                params = xgb_params_1,
+                nrounds = 500,              # max number of trees to build
+                verbose = TRUE,                                         
+                print.every.n = 20
+)
+
+# Compare actual test set prediction error
+pred = predict(xgb_1,as.matrix(data_pca_all_scale_c[index$test,1:21])) # prob = TRUE not working?
+
+prob <- list()
+prob$test <- pred
+logloss <- logLoss(data[index$test,"target"],prob$test)
+
+
+# Save output
+if (saveprob) {
+  model$prob <- prob
+}
+model$logloss <- logloss
+#models <- append(models,list(model))
+return(model)
+}
+
+
+#submission_xgb <- data.frame(t_id = testid,
+#                         probability = pred)
+#probs <- data.frame(xgb = submission_xgb[,2], 
+#                    mxnet = submission_mxnet[,2], 
+#                    bag = submission_bag[,2],
+#                    glm4 = submission_glm4[,2])
+#cor(probs)
+#submission_ens <- data.frame(t_id = testid,
+#                             probability = apply(probs,1,mean))
+#write_csv(submission_ens,"./predictions/predictions_ens.csv")
 
 
 
